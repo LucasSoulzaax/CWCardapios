@@ -1,180 +1,305 @@
 const express = require("express");
-const fs = require("fs");
 const path = require("path");
+const { Pool } = require("pg");
 
 const app = express();
-const DATA_FILE = path.join(__dirname, "data.json");
+const PORT = process.env.PORT || 3000;
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!DATABASE_URL) {
+  console.error("DATABASE_URL não configurada.");
+  process.exit(1);
+}
+
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
 app.use(express.json());
 app.use(express.static(__dirname));
 
-function initDataFile() {
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ users: [], registros: [] }, null, 2), "utf-8");
-  }
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id BIGSERIAL PRIMARY KEY,
+      nome TEXT NOT NULL,
+      username TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 
-  const raw = fs.readFileSync(DATA_FILE, "utf-8").trim();
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS registros (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      nome TEXT NOT NULL,
+      username TEXT NOT NULL,
+      data_criacao DATE NOT NULL,
+      crisp TEXT DEFAULT '',
+      portal TEXT DEFAULT '',
+      tipo_cardapio TEXT NOT NULL CHECK (tipo_cardapio IN ('manual', 'importavel', 'alteracao')),
+      sos BOOLEAN NOT NULL DEFAULT FALSE,
+      ism_responsavel TEXT DEFAULT '',
+      alteracao TEXT DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 
-  if (!raw) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ users: [], registros: [] }, null, 2), "utf-8");
-    return { users: [], registros: [] };
-  }
-
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      const migrated = { users: [], registros: parsed.map(r => ({ ...r, sos: false, ismResponsavel: '' })) };
-      fs.writeFileSync(DATA_FILE, JSON.stringify(migrated, null, 2), "utf-8");
-      return migrated;
-    }
-
-    const data = {
-      users: Array.isArray(parsed.users) ? parsed.users : [],
-      registros: Array.isArray(parsed.registros) ? parsed.registros.map(r => ({
-        ...r,
-        sos: !!r.sos,
-        ismResponsavel: r.ismResponsavel || ''
-      })) : []
-    };
-
-    return data;
-  } catch (e) {
-    const fallback = { users: [], registros: [] };
-    fs.writeFileSync(DATA_FILE, JSON.stringify(fallback, null, 2), "utf-8");
-    return fallback;
-  }
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_registros_user_id ON registros(user_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_registros_username ON registros(username)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_registros_data_criacao ON registros(data_criacao)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_registros_sos ON registros(sos)`);
 }
 
-function lerDados() { return initDataFile(); }
-function salvarDados(dados) { fs.writeFileSync(DATA_FILE, JSON.stringify(dados, null, 2), "utf-8"); }
-
-app.get("/api/users", (req, res) => {
+app.get("/api/users", async (req, res) => {
   try {
-    res.json(lerDados().users);
+    const result = await pool.query(
+      `SELECT id, nome, username, created_at FROM users ORDER BY nome ASC`
+    );
+    res.json(result.rows);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Erro ao buscar usuários." });
   }
 });
 
-app.post("/api/users", (req, res) => {
+app.post("/api/users", async (req, res) => {
   try {
     const { nome, username, password } = req.body;
+
     if (!nome || !username || !password) {
       return res.status(400).json({ error: "Nome, username e senha são obrigatórios." });
     }
 
-    const dados = lerDados();
     const usernameNormalizado = String(username).trim().toLowerCase();
-    if (dados.users.some(u => u.username === usernameNormalizado)) {
+
+    const exists = await pool.query(`SELECT id FROM users WHERE username = $1`, [usernameNormalizado]);
+    if (exists.rowCount > 0) {
       return res.status(400).json({ error: "Esse username já está em uso." });
     }
 
-    const novoUsuario = {
-      id: Date.now().toString(),
-      nome: String(nome).trim(),
-      username: usernameNormalizado,
-      password: String(password)
-    };
+    const result = await pool.query(
+      `INSERT INTO users (nome, username, password)
+       VALUES ($1, $2, $3)
+       RETURNING id, nome, username, created_at`,
+      [String(nome).trim(), usernameNormalizado, String(password)]
+    );
 
-    dados.users.push(novoUsuario);
-    salvarDados(dados);
-    res.status(201).json(novoUsuario);
+    res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Erro ao criar usuário." });
   }
 });
 
-app.get("/api/registros", (req, res) => {
+app.post("/api/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: "Usuário e senha são obrigatórios." });
+    }
+
+    const result = await pool.query(
+      `SELECT id, nome, username FROM users WHERE username = $1 AND password = $2 LIMIT 1`,
+      [String(username).trim().toLowerCase(), String(password)]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(401).json({ error: "Usuário ou senha inválidos." });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Erro ao realizar login." });
+  }
+});
+
+app.get("/api/registros", async (req, res) => {
   try {
     const { nome, dataIni, dataFim } = req.query;
-    let registros = lerDados().registros;
+    const conditions = [];
+    const values = [];
 
     if (nome) {
-      const busca = String(nome).toLowerCase();
-      registros = registros.filter(r => (r.nome || "").toLowerCase().includes(busca));
+      values.push(`%${String(nome).toLowerCase()}%`);
+      conditions.push(`LOWER(nome) LIKE $${values.length}`);
     }
-    if (dataIni) registros = registros.filter(r => r.dataCriacao >= dataIni);
-    if (dataFim) registros = registros.filter(r => r.dataCriacao <= dataFim);
 
-    registros.sort((a, b) => (b.dataCriacao || "").localeCompare(a.dataCriacao || ""));
-    res.json(registros);
+    if (dataIni) {
+      values.push(dataIni);
+      conditions.push(`data_criacao >= $${values.length}`);
+    }
+
+    if (dataFim) {
+      values.push(dataFim);
+      conditions.push(`data_criacao <= $${values.length}`);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const result = await pool.query(
+      `SELECT id, user_id, nome, username, data_criacao, crisp, portal, tipo_cardapio, sos, ism_responsavel, alteracao, created_at
+       FROM registros
+       ${whereClause}
+       ORDER BY data_criacao DESC, id DESC`,
+      values
+    );
+
+    const rows = result.rows.map(r => ({
+      id: String(r.id),
+      userId: String(r.user_id),
+      nome: r.nome,
+      username: r.username,
+      dataCriacao: r.data_criacao,
+      crisp: r.crisp,
+      portal: r.portal,
+      tipoCardapio: r.tipo_cardapio,
+      sos: r.sos,
+      ismResponsavel: r.ism_responsavel,
+      alteracao: r.alteracao,
+      createdAt: r.created_at
+    }));
+
+    res.json(rows);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Erro ao buscar registros." });
   }
 });
 
-app.post("/api/registros", (req, res) => {
+app.post("/api/registros", async (req, res) => {
   try {
     const { nome, username, dataCriacao, crisp, portal, tipoCardapio, sos, ismResponsavel, alteracao } = req.body;
 
     if (!nome || !username || !dataCriacao || !tipoCardapio) {
       return res.status(400).json({ error: "Nome, username, data de criação e tipo são obrigatórios." });
     }
+
     if (sos && !ismResponsavel) {
       return res.status(400).json({ error: "Informe o ISM responsável para registros SOS." });
     }
 
-    const dados = lerDados();
-    const novo = {
-      id: Date.now().toString(),
-      nome,
-      username,
-      dataCriacao,
-      crisp: crisp || "",
-      portal: portal || "",
-      tipoCardapio,
-      sos: !!sos,
-      ismResponsavel: sos ? (ismResponsavel || "") : "",
-      alteracao: alteracao || ""
-    };
+    const userResult = await pool.query(`SELECT id FROM users WHERE username = $1 LIMIT 1`, [String(username).trim().toLowerCase()]);
+    if (userResult.rowCount === 0) {
+      return res.status(404).json({ error: "Usuário não encontrado." });
+    }
 
-    dados.registros.push(novo);
-    salvarDados(dados);
-    res.status(201).json(novo);
+    const userId = userResult.rows[0].id;
+
+    const result = await pool.query(
+      `INSERT INTO registros (user_id, nome, username, data_criacao, crisp, portal, tipo_cardapio, sos, ism_responsavel, alteracao)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id, user_id, nome, username, data_criacao, crisp, portal, tipo_cardapio, sos, ism_responsavel, alteracao, created_at`,
+      [
+        userId,
+        nome,
+        String(username).trim().toLowerCase(),
+        dataCriacao,
+        crisp || "",
+        portal || "",
+        tipoCardapio,
+        !!sos,
+        sos ? (ismResponsavel || "") : "",
+        alteracao || ""
+      ]
+    );
+
+    const r = result.rows[0];
+    res.status(201).json({
+      id: String(r.id),
+      userId: String(r.user_id),
+      nome: r.nome,
+      username: r.username,
+      dataCriacao: r.data_criacao,
+      crisp: r.crisp,
+      portal: r.portal,
+      tipoCardapio: r.tipo_cardapio,
+      sos: r.sos,
+      ismResponsavel: r.ism_responsavel,
+      alteracao: r.alteracao,
+      createdAt: r.created_at
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Erro ao criar registro." });
   }
 });
 
-app.put("/api/registros/:id", (req, res) => {
+app.put("/api/registros/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const dados = lerDados();
-    const index = dados.registros.findIndex(r => r.id === id);
+    const { nome, username, dataCriacao, crisp, portal, tipoCardapio, sos, ismResponsavel, alteracao } = req.body;
 
-    if (index === -1) return res.status(404).json({ error: "Registro não encontrado." });
-    if (req.body.sos && !req.body.ismResponsavel) {
+    if (sos && !ismResponsavel) {
       return res.status(400).json({ error: "Informe o ISM responsável para registros SOS." });
     }
 
-    dados.registros[index] = {
-      ...dados.registros[index],
-      ...req.body,
-      sos: !!req.body.sos,
-      ismResponsavel: req.body.sos ? (req.body.ismResponsavel || "") : "",
-      id
-    };
-    salvarDados(dados);
-    res.json(dados.registros[index]);
+    const existing = await pool.query(`SELECT id FROM registros WHERE id = $1 LIMIT 1`, [id]);
+    if (existing.rowCount === 0) {
+      return res.status(404).json({ error: "Registro não encontrado." });
+    }
+
+    const result = await pool.query(
+      `UPDATE registros
+       SET nome = $1,
+           username = $2,
+           data_criacao = $3,
+           crisp = $4,
+           portal = $5,
+           tipo_cardapio = $6,
+           sos = $7,
+           ism_responsavel = $8,
+           alteracao = $9
+       WHERE id = $10
+       RETURNING id, user_id, nome, username, data_criacao, crisp, portal, tipo_cardapio, sos, ism_responsavel, alteracao, created_at`,
+      [
+        nome,
+        String(username).trim().toLowerCase(),
+        dataCriacao,
+        crisp || "",
+        portal || "",
+        tipoCardapio,
+        !!sos,
+        sos ? (ismResponsavel || "") : "",
+        alteracao || "",
+        id
+      ]
+    );
+
+    const r = result.rows[0];
+    res.json({
+      id: String(r.id),
+      userId: String(r.user_id),
+      nome: r.nome,
+      username: r.username,
+      dataCriacao: r.data_criacao,
+      crisp: r.crisp,
+      portal: r.portal,
+      tipoCardapio: r.tipo_cardapio,
+      sos: r.sos,
+      ismResponsavel: r.ism_responsavel,
+      alteracao: r.alteracao,
+      createdAt: r.created_at
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Erro ao atualizar registro." });
   }
 });
 
-app.delete("/api/registros/:id", (req, res) => {
+app.delete("/api/registros/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const dados = lerDados();
-    if (!dados.registros.some(r => r.id === id)) {
+    const result = await pool.query(`DELETE FROM registros WHERE id = $1 RETURNING id`, [id]);
+
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: "Registro não encontrado." });
     }
-    dados.registros = dados.registros.filter(r => r.id !== id);
-    salvarDados(dados);
+
     res.json({ success: true });
   } catch (error) {
     console.error(error);
@@ -182,11 +307,24 @@ app.delete("/api/registros/:id", (req, res) => {
   }
 });
 
-app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
-app.use((req, res) => {
-  if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Rota da API não encontrada" });
+app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+app.use((req, res) => {
+  if (req.path.startsWith("/api/")) {
+    return res.status(404).json({ error: "Rota da API não encontrada" });
+  }
+  res.sendFile(path.join(__dirname, "index.html"));
+});
+
+initDb()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Servidor rodando na porta ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error("Erro ao inicializar banco:", error);
+    process.exit(1);
+  });
