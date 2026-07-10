@@ -149,8 +149,21 @@ function badgeSos(sos) {
 
 function formatDate(d) {
   if (!d) return "-";
-  const [y, m, day] = d.split("-");
-  return `${day}/${m}/${y}`;
+
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(d)) return d;
+
+  const date = new Date(d);
+  if (!Number.isNaN(date.getTime())) {
+    return date.toLocaleDateString("pt-BR", { timeZone: "UTC" });
+  }
+
+  const match = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const [, y, m, day] = match;
+    return `${day}/${m}/${y}`;
+  }
+
+  return String(d);
 }
 
 function crispCell(crisp) {
