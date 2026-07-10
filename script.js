@@ -101,6 +101,7 @@ el("registerForm").addEventListener("submit", async (e) => {
 
   try {
     await apiPost(API_USERS_URL, { nome, username, password });
+    await carregarUsuarios();
     showToast("Conta criada com sucesso.");
     el("registerForm").reset();
     setAuthTab("login");
@@ -118,17 +119,12 @@ el("loginForm").addEventListener("submit", async (e) => {
   const password = el("loginPassword").value.trim();
 
   try {
-    const users = await apiGet(API_USERS_URL);
-    const user = users.find(u => u.username === username && u.password === password);
-
-    if (!user) {
-      showToast("Usuário ou senha inválidos.", "error");
-      return;
-    }
+    const user = await apiPost("/api/login", { username, password });
 
     currentUser = user;
     abrirApp();
     carregarTabela();
+    carregarUsuarios();
     showToast(`Bem-vindo, ${user.nome}!`);
   } catch (err) {
     console.error(err);
@@ -384,3 +380,35 @@ el("clearFilters").addEventListener("click", () => {
   carregarTabela();
 });
 el("exportXlsxBtn").addEventListener("click", exportToXlsx);
+
+
+function renderUsersList(users) {
+  const list = el("usersList");
+  if (!list) return;
+  if (!users.length) {
+    list.innerHTML = '<div class="empty-users">Nenhum usuário cadastrado ainda.</div>';
+    return;
+  }
+
+  list.innerHTML = users.map(user => `
+    <div class="user-card">
+      <div>
+        <strong>${user.nome}</strong>
+        <p>@${user.username}</p>
+      </div>
+      <span class="owner-tag">ID ${user.id}</span>
+    </div>
+  `).join('');
+}
+
+async function carregarUsuarios() {
+  try {
+    const users = await apiGet(API_USERS_URL);
+    renderUsersList(users);
+  } catch (err) {
+    console.error(err);
+    showToast("Erro ao carregar usuários.", "error");
+  }
+}
+
+if (el("refreshUsersBtn")) el("refreshUsersBtn").addEventListener("click", carregarUsuarios);
