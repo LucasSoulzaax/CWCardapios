@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
   <div class="bg-orb orb-1"></div>
@@ -120,6 +121,18 @@
           </select>
         </div>
 
+        <div class="field checkbox-card">
+          <label class="checkbox-line">
+            <input type="checkbox" id="sos">
+            <span>Marcar como SOS</span>
+          </label>
+        </div>
+
+        <div class="field hidden" id="ismFieldWrap">
+          <label for="ismResponsavel">ISM responsável</label>
+          <input type="text" id="ismResponsavel" placeholder="Digite o nome do ISM responsável">
+        </div>
+
         <div class="field">
           <label for="alteracao">Alteração / observação</label>
           <textarea id="alteracao" rows="4" placeholder="Descreva detalhes da alteração"></textarea>
@@ -137,7 +150,10 @@
             <h3>Dashboard</h3>
             <p class="muted-line">Filtros e visualização dos registros salvos</p>
           </div>
-          <div class="results-pill"><span id="resultsCount">0</span> resultados</div>
+          <div class="dashboard-actions">
+            <div class="results-pill"><span id="resultsCount">0</span> resultados</div>
+            <button id="exportXlsxBtn" class="btn btn-primary small" type="button">Exportar XLSX</button>
+          </div>
         </div>
 
         <div class="stats" id="stats"></div>
@@ -165,6 +181,15 @@
             </div>
 
             <div class="field">
+              <label for="filterSos">SOS</label>
+              <select id="filterSos">
+                <option value="">Todos</option>
+                <option value="sim">Somente SOS</option>
+                <option value="nao">Sem SOS</option>
+              </select>
+            </div>
+
+            <div class="field">
               <label for="filterDataIni">Data inicial</label>
               <input type="date" id="filterDataIni">
             </div>
@@ -185,6 +210,8 @@
                 <th>Crisp</th>
                 <th>Portal</th>
                 <th>Tipo</th>
+                <th>SOS</th>
+                <th>ISM</th>
                 <th>Alteração</th>
                 <th>Ações</th>
               </tr>
