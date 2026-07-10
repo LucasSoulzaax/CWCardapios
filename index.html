@@ -1,88 +1,217 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Gestão de Cardápios - Assistentes</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestão de Cardápios</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="bg-orb orb-1"></div>
+  <div class="bg-orb orb-2"></div>
 
-<div class="header">
-  <div class="logo">🍽️</div>
-  <div>
-    <h1>Gestão de Cardápios</h1>
-    <div class="subtitle">Cadastro e dashboard por assistente</div>
-  </div>
-</div>
+  <section id="loginScreen" class="login-screen auth-layout">
+    <div class="auth-card auth-left">
+      <div class="login-brand">
+        <div class="brand-icon">🍽️</div>
+        <div>
+          <h1>Painel de Cardápios</h1>
+          <p>Entre ou crie sua conta para gerenciar seus próprios registros</p>
+        </div>
+      </div>
 
-<div class="container">
+      <div class="auth-tabs">
+        <button id="tabLogin" class="auth-tab active" type="button">Entrar</button>
+        <button id="tabRegister" class="auth-tab" type="button">Criar conta</button>
+      </div>
 
-  <div class="card" id="form-card">
-    <h2 id="form-title">Novo Registro</h2>
-    <input type="hidden" id="editId">
+      <form id="loginForm" class="auth-form">
+        <div class="field">
+          <label for="loginUsername">Usuário</label>
+          <input type="text" id="loginUsername" placeholder="Seu username" required>
+        </div>
 
-    <label for="nome">Nome do assistente</label>
-    <input type="text" id="nome" placeholder="Ex: Ana Souza">
+        <div class="field">
+          <label for="loginPassword">Senha</label>
+          <input type="password" id="loginPassword" placeholder="Sua senha" required>
+        </div>
 
-    <label for="dataCriacao">Data de criação</label>
-    <input type="date" id="dataCriacao">
+        <button type="submit" class="btn btn-primary">Entrar</button>
+      </form>
 
-    <label for="crisp">Crisp (cole o link aqui)</label>
-    <input type="text" id="crisp" placeholder="https://app.crisp.chat/... ou observação">
+      <form id="registerForm" class="auth-form hidden">
+        <div class="field">
+          <label for="registerNome">Nome do assistente</label>
+          <input type="text" id="registerNome" placeholder="Ex: Lucas Souza" required>
+        </div>
 
-    <label for="portal">Portal</label>
-    <input type="text" id="portal" placeholder="Ex: Portal XPTO">
+        <div class="field">
+          <label for="registerUsername">Username</label>
+          <input type="text" id="registerUsername" placeholder="Ex: lucas" required>
+        </div>
 
-    <label for="tipoCardapio">Tipo de cardápio</label>
-    <select id="tipoCardapio">
-      <option value="manual">Manual</option>
-      <option value="importavel">Importável</option>
-      <option value="alteracao">Alteração</option>
-    </select>
+        <div class="field">
+          <label for="registerPassword">Senha</label>
+          <input type="password" id="registerPassword" placeholder="Crie uma senha" required>
+        </div>
 
-    <label for="alteracao">Alteração (observações)</label>
-    <input type="text" id="alteracao" placeholder="Descreva a alteração, se houver">
-
-    <button id="saveBtn">Salvar registro</button>
-    <button class="secondary" id="clearBtn">Limpar formulário</button>
-  </div>
-
-  <div class="card">
-    <h2>Dashboard</h2>
-
-    <div class="stats" id="stats"></div>
-
-    <div class="filters">
-      <input type="text" id="filterNome" placeholder="🔍 Filtrar por nome...">
-      <input type="date" id="filterDataIni" title="Data inicial">
-      <input type="date" id="filterDataFim" title="Data final">
-      <button class="secondary" id="clearFilters">Limpar filtros</button>
+        <button type="submit" class="btn btn-primary">Criar conta</button>
+      </form>
     </div>
+  </section>
 
-    <div style="overflow-x:auto;">
-      <table id="table">
-        <thead>
-          <tr>
-            <th>Assistente</th>
-            <th>Data criação</th>
-            <th>Crisp</th>
-            <th>Portal</th>
-            <th>Tipo cardápio</th>
-            <th>Alteração</th>
-            <th>Ações</th>
-          </tr>
-        </thead>
-        <tbody id="tbody"></tbody>
-      </table>
-      <div class="empty" id="emptyMsg" style="display:none;">Nenhum registro encontrado.</div>
+  <main id="appScreen" class="app-shell hidden">
+    <header class="topbar">
+      <div class="brand-wrap">
+        <div class="brand-icon small">📊</div>
+        <div>
+          <h2>Gestão de Cardápios</h2>
+          <p>Controle de entregas por assistente</p>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <div class="logged-box">
+          <span class="logged-label">Logado como</span>
+          <strong id="loggedUserName">-</strong>
+        </div>
+        <button id="logoutBtn" class="btn btn-ghost" type="button">Sair</button>
+      </div>
+    </header>
+
+    <section class="layout-grid">
+      <aside class="panel form-panel">
+        <div class="panel-header">
+          <h3 id="form-title">Novo Registro</h3>
+          <span class="panel-tag">Autopreenchido</span>
+        </div>
+
+        <input type="hidden" id="editId">
+
+        <div class="field readonly-box">
+          <label>Assistente responsável</label>
+          <div class="auto-user" id="autoUserDisplay">-</div>
+        </div>
+
+        <div class="field">
+          <label for="dataCriacao">Data de criação</label>
+          <input type="date" id="dataCriacao">
+        </div>
+
+        <div class="field">
+          <label for="crisp">Crisp (link ou observação)</label>
+          <input type="text" id="crisp" placeholder="Cole aqui o link do Crisp">
+        </div>
+
+        <div class="field">
+          <label for="portal">Portal</label>
+          <input type="text" id="portal" placeholder="Ex: Portal XPTO">
+        </div>
+
+        <div class="field">
+          <label for="tipoCardapio">Tipo de cardápio</label>
+          <select id="tipoCardapio">
+            <option value="manual">Manual</option>
+            <option value="importavel">Importável</option>
+            <option value="alteracao">Alteração</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="alteracao">Alteração / observação</label>
+          <textarea id="alteracao" rows="4" placeholder="Descreva detalhes da alteração"></textarea>
+        </div>
+
+        <div class="form-actions">
+          <button id="saveBtn" class="btn btn-primary" type="button">Salvar registro</button>
+          <button id="clearBtn" class="btn btn-secondary" type="button">Limpar</button>
+        </div>
+      </aside>
+
+      <section class="panel dashboard-panel">
+        <div class="panel-header dashboard-head">
+          <div>
+            <h3>Dashboard</h3>
+            <p class="muted-line">Filtros e visualização dos registros salvos</p>
+          </div>
+          <div class="results-pill"><span id="resultsCount">0</span> resultados</div>
+        </div>
+
+        <div class="stats" id="stats"></div>
+
+        <div class="filters-card">
+          <div class="filters-title-row">
+            <h4>Filtros</h4>
+            <button id="clearFilters" class="btn btn-ghost small" type="button">Limpar filtros</button>
+          </div>
+
+          <div class="filters-grid">
+            <div class="field">
+              <label for="filterNome">Nome</label>
+              <input type="text" id="filterNome" placeholder="Buscar por assistente...">
+            </div>
+
+            <div class="field">
+              <label for="filterTipo">Tipo</label>
+              <select id="filterTipo">
+                <option value="">Todos</option>
+                <option value="manual">Manual</option>
+                <option value="importavel">Importável</option>
+                <option value="alteracao">Alteração</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="filterDataIni">Data inicial</label>
+              <input type="date" id="filterDataIni">
+            </div>
+
+            <div class="field">
+              <label for="filterDataFim">Data final</label>
+              <input type="date" id="filterDataFim">
+            </div>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Assistente</th>
+                <th>Data</th>
+                <th>Crisp</th>
+                <th>Portal</th>
+                <th>Tipo</th>
+                <th>Alteração</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+          <div id="emptyMsg" class="empty">Nenhum registro encontrado.</div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <div id="confirmModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+      <div class="modal-icon">⚠️</div>
+      <h3>Confirmar exclusão</h3>
+      <p>Tem certeza que deseja excluir este registro? Essa ação não poderá ser desfeita.</p>
+      <div class="modal-actions">
+        <button id="cancelDeleteBtn" class="btn btn-secondary" type="button">Cancelar</button>
+        <button id="confirmDeleteBtn" class="btn btn-danger" type="button">Excluir registro</button>
+      </div>
     </div>
   </div>
 
-</div>
+  <div id="toast" class="toast hidden"></div>
 
-<script src="script.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
