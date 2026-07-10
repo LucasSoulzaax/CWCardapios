@@ -22,17 +22,22 @@ function initDataFile() {
 
   try {
     const parsed = JSON.parse(raw);
-
     if (Array.isArray(parsed)) {
-      const migrated = { users: [], registros: parsed };
+      const migrated = { users: [], registros: parsed.map(r => ({ ...r, sos: false, ismResponsavel: '' })) };
       fs.writeFileSync(DATA_FILE, JSON.stringify(migrated, null, 2), "utf-8");
       return migrated;
     }
 
-    return {
+    const data = {
       users: Array.isArray(parsed.users) ? parsed.users : [],
-      registros: Array.isArray(parsed.registros) ? parsed.registros : []
+      registros: Array.isArray(parsed.registros) ? parsed.registros.map(r => ({
+        ...r,
+        sos: !!r.sos,
+        ismResponsavel: r.ismResponsavel || ''
+      })) : []
     };
+
+    return data;
   } catch (e) {
     const fallback = { users: [], registros: [] };
     fs.writeFileSync(DATA_FILE, JSON.stringify(fallback, null, 2), "utf-8");
@@ -40,18 +45,12 @@ function initDataFile() {
   }
 }
 
-function lerDados() {
-  return initDataFile();
-}
-
-function salvarDados(dados) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(dados, null, 2), "utf-8");
-}
+function lerDados() { return initDataFile(); }
+function salvarDados(dados) { fs.writeFileSync(DATA_FILE, JSON.stringify(dados, null, 2), "utf-8"); }
 
 app.get("/api/users", (req, res) => {
   try {
-    const dados = lerDados();
-    res.json(dados.users);
+    res.json(lerDados().users);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Erro ao buscar usuários." });
@@ -61,14 +60,12 @@ app.get("/api/users", (req, res) => {
 app.post("/api/users", (req, res) => {
   try {
     const { nome, username, password } = req.body;
-
     if (!nome || !username || !password) {
       return res.status(400).json({ error: "Nome, username e senha são obrigatórios." });
     }
 
     const dados = lerDados();
     const usernameNormalizado = String(username).trim().toLowerCase();
-
     if (dados.users.some(u => u.username === usernameNormalizado)) {
       return res.status(400).json({ error: "Esse username já está em uso." });
     }
@@ -98,7 +95,6 @@ app.get("/api/registros", (req, res) => {
       const busca = String(nome).toLowerCase();
       registros = registros.filter(r => (r.nome || "").toLowerCase().includes(busca));
     }
-
     if (dataIni) registros = registros.filter(r => r.dataCriacao >= dataIni);
     if (dataFim) registros = registros.filter(r => r.dataCriacao <= dataFim);
 
@@ -112,10 +108,13 @@ app.get("/api/registros", (req, res) => {
 
 app.post("/api/registros", (req, res) => {
   try {
-    const { nome, username, dataCriacao, crisp, portal, tipoCardapio, alteracao } = req.body;
+    const { nome, username, dataCriacao, crisp, portal, tipoCardapio, sos, ismResponsavel, alteracao } = req.body;
 
     if (!nome || !username || !dataCriacao || !tipoCardapio) {
       return res.status(400).json({ error: "Nome, username, data de criação e tipo são obrigatórios." });
+    }
+    if (sos && !ismResponsavel) {
+      return res.status(400).json({ error: "Informe o ISM responsável para registros SOS." });
     }
 
     const dados = lerDados();
@@ -127,6 +126,8 @@ app.post("/api/registros", (req, res) => {
       crisp: crisp || "",
       portal: portal || "",
       tipoCardapio,
+      sos: !!sos,
+      ismResponsavel: sos ? (ismResponsavel || "") : "",
       alteracao: alteracao || ""
     };
 
@@ -145,11 +146,18 @@ app.put("/api/registros/:id", (req, res) => {
     const dados = lerDados();
     const index = dados.registros.findIndex(r => r.id === id);
 
-    if (index === -1) {
-      return res.status(404).json({ error: "Registro não encontrado." });
+    if (index === -1) return res.status(404).json({ error: "Registro não encontrado." });
+    if (req.body.sos && !req.body.ismResponsavel) {
+      return res.status(400).json({ error: "Informe o ISM responsável para registros SOS." });
     }
 
-    dados.registros[index] = { ...dados.registros[index], ...req.body, id };
+    dados.registros[index] = {
+      ...dados.registros[index],
+      ...req.body,
+      sos: !!req.body.sos,
+      ismResponsavel: req.body.sos ? (req.body.ismResponsavel || "") : "",
+      id
+    };
     salvarDados(dados);
     res.json(dados.registros[index]);
   } catch (error) {
@@ -162,11 +170,9 @@ app.delete("/api/registros/:id", (req, res) => {
   try {
     const { id } = req.params;
     const dados = lerDados();
-
     if (!dados.registros.some(r => r.id === id)) {
       return res.status(404).json({ error: "Registro não encontrado." });
     }
-
     dados.registros = dados.registros.filter(r => r.id !== id);
     salvarDados(dados);
     res.json({ success: true });
@@ -176,18 +182,11 @@ app.delete("/api/registros/:id", (req, res) => {
   }
 });
 
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
-});
-
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
 app.use((req, res) => {
-  if (req.path.startsWith("/api/")) {
-    return res.status(404).json({ error: "Rota da API não encontrada" });
-  }
+  if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Rota da API não encontrada" });
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
