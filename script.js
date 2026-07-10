@@ -166,6 +166,16 @@ function formatDate(d) {
   return String(d);
 }
 
+function getTodayISO() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+}
+
+function shouldUseTodayDefaultFilter() {
+  return !el("filterNome").value.trim() &&
+    !el("filterDataIni").value &&
+    !el("filterDataFim").value;
+}
+
 function crispCell(crisp) {
   if (!crisp) return "-";
   if (crisp.startsWith("http")) {
@@ -257,8 +267,15 @@ function exportToXlsx() {
 async function carregarTabela() {
   const params = new URLSearchParams();
   const nome = el("filterNome").value.trim();
-  const dataIni = el("filterDataIni").value;
-  const dataFim = el("filterDataFim").value;
+  let dataIni = el("filterDataIni").value;
+  let dataFim = el("filterDataFim").value;
+
+  if (shouldUseTodayDefaultFilter()) {
+    const hoje = getTodayISO();
+    dataIni = hoje;
+    dataFim = hoje;
+  }
+
   if (nome) params.append("nome", nome);
   if (dataIni) params.append("dataIni", dataIni);
   if (dataFim) params.append("dataFim", dataFim);
