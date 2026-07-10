@@ -22,7 +22,14 @@ function setAuthTab(mode) {
   el("registerForm").classList.toggle("hidden", isLogin);
 }
 
+function toggleIsmField() {
+  const checked = el("sos").checked;
+  el("ismFieldWrap").classList.toggle("hidden", !checked);
+  if (!checked) el("ismResponsavel").value = "";
+}
+
 function abrirApp() {
+  clearForm();
   el("loginScreen").classList.add("hidden");
   el("appScreen").classList.remove("hidden");
   el("loggedUserName").textContent = currentUser.nome;
@@ -31,6 +38,9 @@ function abrirApp() {
 
 function fecharApp() {
   currentUser = null;
+  registrosAtuais = [];
+  pendingDeleteId = null;
+  clearForm();
   el("loginScreen").classList.remove("hidden");
   el("appScreen").classList.add("hidden");
   el("loginForm").reset();
@@ -75,6 +85,7 @@ async function apiDelete(url) {
 
 el("tabLogin").addEventListener("click", () => setAuthTab("login"));
 el("tabRegister").addEventListener("click", () => setAuthTab("register"));
+el("sos").addEventListener("change", toggleIsmField);
 
 el("registerForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -135,6 +146,11 @@ function badgeTipo(tipo) {
   return `<span class="badge ${tipo}">${map[tipo] || tipo}</span>`;
 }
 
+function badgeSos(sos) {
+  if (!sos) return '<span class="badge neutral">Não</span>';
+  return '<span class="badge sos">SOS</span>';
+}
+
 function formatDate(d) {
   if (!d) return "-";
   const [y, m, day] = d.split("-");
@@ -151,20 +167,27 @@ function crispCell(crisp) {
 
 function getFilteredClient(list) {
   const tipo = el("filterTipo").value;
-  if (!tipo) return list;
-  return list.filter(r => r.tipoCardapio === tipo);
+  const sos = el("filterSos").value;
+  let result = list;
+
+  if (tipo) result = result.filter(r => r.tipoCardapio === tipo);
+  if (sos === 'sim') result = result.filter(r => r.sos === true);
+  if (sos === 'nao') result = result.filter(r => !r.sos);
+
+  return result;
 }
 
 function renderStats(list) {
-  const counts = { manual: 0, importavel: 0, alteracao: 0 };
+  const counts = { manual: 0, importavel: 0, alteracao: 0, sos: 0 };
   list.forEach(r => {
     if (counts[r.tipoCardapio] !== undefined) counts[r.tipoCardapio]++;
+    if (r.sos) counts.sos++;
   });
   el("stats").innerHTML = `
     <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value">${list.length}</div></div>
     <div class="stat-card"><div class="stat-label">Manual</div><div class="stat-value">${counts.manual}</div></div>
     <div class="stat-card"><div class="stat-label">Importável</div><div class="stat-value">${counts.importavel}</div></div>
-    <div class="stat-card"><div class="stat-label">Alteração</div><div class="stat-value">${counts.alteracao}</div></div>
+    <div class="stat-card"><div class="stat-label">SOS</div><div class="stat-value danger-text">${counts.sos}</div></div>
   `;
 }
 
@@ -176,7 +199,7 @@ function renderTable(list) {
   renderStats(list);
 
   list.forEach(r => {
-    const dono = currentUser && (r.nome || "").toLowerCase() === currentUser.nome.toLowerCase();
+    const dono = currentUser && r.username === currentUser.username;
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>
@@ -187,6 +210,8 @@ function renderTable(list) {
       <td>${crispCell(r.crisp)}</td>
       <td>${r.portal || "-"}</td>
       <td>${badgeTipo(r.tipoCardapio)}</td>
+      <td>${badgeSos(r.sos)}</td>
+      <td>${r.ismResponsavel || '-'}</td>
       <td>${r.alteracao || "-"}</td>
       <td>
         ${dono ? `
@@ -199,6 +224,25 @@ function renderTable(list) {
     `;
     tbody.appendChild(tr);
   });
+}
+
+function exportToXlsx() {
+  const rows = registrosAtuais.map(r => ({
+    Assistente: r.nome,
+    Username: r.username,
+    'Data de criação': formatDate(r.dataCriacao),
+    Crisp: r.crisp || '',
+    Portal: r.portal || '',
+    'Tipo de cardápio': r.tipoCardapio || '',
+    SOS: r.sos ? 'Sim' : 'Não',
+    'ISM responsável': r.ismResponsavel || '',
+    Alteração: r.alteracao || ''
+  }));
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Aviso: 'Nenhum registro para exportar' }]);
+  XLSX.utils.book_append_sheet(wb, ws, 'Cardapios');
+  XLSX.writeFile(wb, 'cardapios.xlsx');
 }
 
 async function carregarTabela() {
@@ -227,15 +271,22 @@ function clearForm() {
   el("crisp").value = "";
   el("portal").value = "";
   el("tipoCardapio").value = "manual";
+  el("sos").checked = false;
+  el("ismResponsavel").value = "";
   el("alteracao").value = "";
   el("form-title").textContent = "Novo Registro";
   if (currentUser) el("autoUserDisplay").textContent = currentUser.nome;
+  toggleIsmField();
 }
 
 async function saveRegistro() {
   const dataCriacao = el("dataCriacao").value;
+  const sos = el("sos").checked;
+  const ismResponsavel = el("ismResponsavel").value.trim();
+
   if (!currentUser) return showToast("Faça login para continuar.", "error");
   if (!dataCriacao) return showToast("Preencha a data de criação.", "error");
+  if (sos && !ismResponsavel) return showToast("Informe o ISM responsável para registros SOS.", "error");
 
   const editId = el("editId").value;
   const registro = {
@@ -245,6 +296,8 @@ async function saveRegistro() {
     crisp: el("crisp").value.trim(),
     portal: el("portal").value.trim(),
     tipoCardapio: el("tipoCardapio").value,
+    sos,
+    ismResponsavel: sos ? ismResponsavel : '',
     alteracao: el("alteracao").value.trim()
   };
 
@@ -276,9 +329,12 @@ window.editRegistro = function(id) {
   el("crisp").value = r.crisp || "";
   el("portal").value = r.portal || "";
   el("tipoCardapio").value = r.tipoCardapio;
+  el("sos").checked = !!r.sos;
+  el("ismResponsavel").value = r.ismResponsavel || '';
   el("alteracao").value = r.alteracao || "";
   el("autoUserDisplay").textContent = r.nome;
   el("form-title").textContent = "Editar Registro";
+  toggleIsmField();
   window.scrollTo({ top: 0, behavior: "smooth" });
 };
 
@@ -304,6 +360,7 @@ el("confirmDeleteBtn").addEventListener("click", async () => {
     pendingDeleteId = null;
     el("confirmModal").classList.add("hidden");
     showToast("Registro excluído com sucesso.");
+    clearForm();
     carregarTabela();
   } catch (err) {
     console.error(err);
@@ -315,12 +372,15 @@ el("saveBtn").addEventListener("click", saveRegistro);
 el("clearBtn").addEventListener("click", clearForm);
 el("filterNome").addEventListener("input", carregarTabela);
 el("filterTipo").addEventListener("change", carregarTabela);
+el("filterSos").addEventListener("change", carregarTabela);
 el("filterDataIni").addEventListener("change", carregarTabela);
 el("filterDataFim").addEventListener("change", carregarTabela);
 el("clearFilters").addEventListener("click", () => {
   el("filterNome").value = "";
   el("filterTipo").value = "";
+  el("filterSos").value = "";
   el("filterDataIni").value = "";
   el("filterDataFim").value = "";
   carregarTabela();
 });
+el("exportXlsxBtn").addEventListener("click", exportToXlsx);
